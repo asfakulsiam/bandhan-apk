@@ -64,16 +64,18 @@ jobs:
             echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
             echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
             echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-upload}" >> $GITHUB_ENV
           elif [ -f "my-upload-key.jks" ]; then
             echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
             echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
             echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-upload}" >> $GITHUB_ENV
           else
-            # Use debug keystore as fallback release signing key if no custom release key provided in secrets
-            cp debug.keystore my-upload-key.jks
-            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
+            # Use debug keystore for signing if no custom release key provided in secrets
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/debug.keystore" >> $GITHUB_ENV
             echo "STORE_PASSWORD=android" >> $GITHUB_ENV
             echo "KEY_PASSWORD=android" >> $GITHUB_ENV
+            echo "KEY_ALIAS=androiddebugkey" >> $GITHUB_ENV
           fi
 
           # 3. Ensure .env file exists for Secrets Gradle Plugin
@@ -97,6 +99,7 @@ jobs:
           KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
           STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS }}
         run: |
           ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
 

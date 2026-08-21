@@ -30,13 +30,13 @@ android {
       val debugKeystore = file("${rootDir}/debug.keystore")
 
       val targetKeystore = when {
-        envKeystorePath != null -> file(envKeystorePath)
+        envKeystorePath != null && file(envKeystorePath).exists() -> file(envKeystorePath)
         defaultReleaseKeystore.exists() -> defaultReleaseKeystore
         else -> debugKeystore
       }
 
       storeFile = targetKeystore
-      val isUsingDebugFallback = (targetKeystore == debugKeystore && envKeystorePath == null)
+      val isUsingDebugFallback = (targetKeystore == debugKeystore)
       storePassword = System.getenv("STORE_PASSWORD") ?: "android"
       keyAlias = System.getenv("KEY_ALIAS") ?: if (isUsingDebugFallback) "androiddebugkey" else "upload"
       keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
