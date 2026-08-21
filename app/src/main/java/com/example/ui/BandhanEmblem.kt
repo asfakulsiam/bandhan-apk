@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -67,9 +68,10 @@ fun BandhanEmblem(
     Box(
         modifier = modifier
             .size(size)
-            .shadow(12.dp, CircleShape, spotColor = BandhanEmeraldPrimary.copy(alpha = 0.25f))
+            .shadow(16.dp, CircleShape, spotColor = BandhanEmeraldPrimary.copy(alpha = 0.35f))
             .clip(CircleShape)
-            .background(Color.White),
+            .background(Color.White)
+            .testTag("bandhan_emblem"),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -189,3 +191,4 @@ fun BandhanEmblem(
         }
     }
 }
+
