@@ -1,0 +1,6 @@
+{
+  "name": "Bandhan 17",
+  "description": "Native Android app for bandhan17.website with in-app browsing, smooth Bengali splash screen, Google Sign-In support, pull-to-refresh, file uploads, and offline detection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

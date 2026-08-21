@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer Circular Border (Cyan / Teal) -->
+    <path
+        android:strokeColor="#00A3B5"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000"
+        android:pathData="M54,54m-33,0a33,33 0 1,0 66,0a33,33 0 1,0 -66,0" />
+
+    <!-- Inner Dark Ring Border -->
+    <path
+        android:strokeColor="#0E4957"
+        android:strokeWidth="1.2"
+        android:fillColor="#00000000"
+        android:pathData="M54,54m-30,0a30,30 0 1,0 60,0a30,30 0 1,0 -60,0" />
+
+    <!-- White Emblem Background Disc -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54m-29,0a29,29 0 1,0 58,0a29,29 0 1,0 -58,0" />
+
+    <!-- Inner Inner Thin Ring -->
+    <path
+        android:strokeColor="#00A3B5"
+        android:strokeWidth="0.8"
+        android:fillColor="#00000000"
+        android:pathData="M54,54m-22,0a22,22 0 1,0 44,0a22,22 0 1,0 -44,0" />
+
+    <!-- Sleeves of the 4 hands: Top (Blue), Right (Dark Grey), Bottom (Teal Green), Left (Coral Red) -->
+    <!-- Top Sleeve (Blue) -->
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M48,37 L56,37 L53,44 L45,44 Z" />
+
+    <!-- Right Sleeve (Dark Slate) -->
+    <path
+        android:fillColor="#374151"
+        android:pathData="M65,47 L65,55 L58,52 L58,44 Z" />
+
+    <!-- Bottom Sleeve (Teal Green) -->
+    <path
+        android:fillColor="#059669"
+        android:pathData="M54,65 L46,65 L49,58 L57,58 Z" />
+
+    <!-- Left Sleeve (Coral Red) -->
+    <path
+        android:fillColor="#DC2626"
+        android:pathData="M37,55 L37,47 L44,50 L44,58 Z" />
+
+    <!-- Interlocked Hands / Wrists (Warm peach skin tone) -->
+    <!-- Arm 1 (Top-Left gripping Right arm) -->
+    <path
+        android:fillColor="#FDBA74"
+        android:strokeColor="#1F2937"
+        android:strokeWidth="0.6"
+        android:pathData="M44,44 C44,42 50,42 54,43 C57,44 59,46 59,48 C57,49 55,49 53,48 C50,47 45,46 44,44 Z" />
+
+    <!-- Arm 2 (Right gripping Bottom arm) -->
+    <path
+        android:fillColor="#FDBA74"
+        android:strokeColor="#1F2937"
+        android:strokeWidth="0.6"
+        android:pathData="M58,47 C60,47 60,53 59,57 C58,60 56,62 54,62 C53,60 53,58 54,56 C55,53 56,48 58,47 Z" />
+
+    <!-- Arm 3 (Bottom gripping Left arm) -->
+    <path
+        android:fillColor="#FDBA74"
+        android:strokeColor="#1F2937"
+        android:strokeWidth="0.6"
+        android:pathData="M58,58 C58,60 52,60 48,59 C45,58 43,56 43,54 C45,53 47,53 49,54 C52,55 57,56 58,58 Z" />
+
+    <!-- Arm 4 (Left gripping Top arm) -->
+    <path
+        android:fillColor="#FDBA74"
+        android:strokeColor="#1F2937"
+        android:strokeWidth="0.6"
+        android:pathData="M44,55 C42,55 42,49 43,45 C44,42 46,40 48,40 C49,42 49,44 48,46 C47,49 46,54 44,55 Z" />
+
+    <!-- 5 Stars at bottom arc -->
+    <!-- Star 1 (Leftmost) -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M37,73 L38,71 L39,73 L41,73 L39.5,74.2 L40,76 L38,75 L36,76 L36.5,74.2 L35,73 Z" />
+
+    <!-- Star 2 -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M44,77 L45,75 L46,77 L48,77 L46.5,78.2 L47,80 L45,79 L43,80 L43.5,78.2 L42,77 Z" />
+
+    <!-- Star 3 (Center) -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M54,78.5 L55,76.5 L56,78.5 L58,78.5 L56.5,79.7 L57,81.5 L55,80.5 L53,81.5 L53.5,79.7 L52,78.5 Z" />
+
+    <!-- Star 4 -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M64,77 L65,75 L66,77 L68,77 L66.5,78.2 L67,80 L65,79 L63,80 L63.5,78.2 L62,77 Z" />
+
+    <!-- Star 5 (Rightmost) -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M71,73 L72,71 L73,73 L75,73 L73.5,74.2 L74,76 L72,75 L70,76 L70.5,74.2 L69,73 Z" />
+
+</vector>

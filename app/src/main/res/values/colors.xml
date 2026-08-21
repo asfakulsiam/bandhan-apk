@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_primary">#0F6B56</color>
+    <color name="brand_primary_dark">#084A3B</color>
+    <color name="brand_primary_light">#E1F5EE</color>
+    <color name="brand_cyan">#00A3B5</color>
+    <color name="brand_dark_blue">#102A43</color>
+    <color name="brand_bg_mint">#F4FAF7</color>
+    <color name="brand_accent_coral">#EF4444</color>
+    <color name="brand_accent_orange">#F59E0B</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
