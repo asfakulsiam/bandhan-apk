@@ -1,4 +1,5 @@
 name: Build and Sign Bandhan 17 Android App (APK & AAB)
+run-name: Build and Sign Bandhan 17 Android App (${{ github.ref_name }})
 
 on:
   push:
