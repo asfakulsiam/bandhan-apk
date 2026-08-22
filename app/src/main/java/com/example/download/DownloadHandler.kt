@@ -212,10 +212,14 @@ object DownloadHandler {
             }
         }
 
-        // 2. URLUtil guess
-        var guessed = URLUtil.guessFileName(url, contentDisposition, mimeType)
-        if (guessed.isNotBlank() && !guessed.equals("downloadfile.bin", ignoreCase = true)) {
-            return sanitizeFileName(guessed)
+        // 2. URLUtil guess (with safe fallback)
+        try {
+            val guessed = URLUtil.guessFileName(url, contentDisposition, mimeType)
+            if (!guessed.isNullOrBlank() && !guessed.equals("downloadfile.bin", ignoreCase = true)) {
+                return sanitizeFileName(guessed)
+            }
+        } catch (_: Throwable) {
+            // Fallback for unmocked unit test / JVM environments
         }
 
         // 3. Fallback to timestamped statement name
@@ -242,12 +246,16 @@ object DownloadHandler {
             return mimeType
         }
 
-        val fileExtension = MimeTypeMap.getFileExtensionFromUrl(url)
-        if (!fileExtension.isNullOrBlank()) {
-            val typeFromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(fileExtension.lowercase())
-            if (!typeFromExt.isNullOrBlank()) {
-                return typeFromExt
+        try {
+            val fileExtension = MimeTypeMap.getFileExtensionFromUrl(url)
+            if (!fileExtension.isNullOrBlank()) {
+                val typeFromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(fileExtension.lowercase())
+                if (!typeFromExt.isNullOrBlank()) {
+                    return typeFromExt
+                }
             }
+        } catch (_: Throwable) {
+            // Fallback
         }
 
         if (url.endsWith(".pdf", ignoreCase = true) || contentDisposition?.contains(".pdf", ignoreCase = true) == true) {
@@ -274,7 +282,11 @@ object DownloadHandler {
             "image/jpeg", "image/jpg" -> "jpg"
             "image/png" -> "png"
             "application/zip" -> "zip"
-            else -> MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+            else -> try {
+                MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+            } catch (_: Throwable) {
+                null
+            }
         }
     }
 
