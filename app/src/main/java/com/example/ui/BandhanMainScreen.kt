@@ -30,15 +30,13 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -59,9 +57,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.example.download.BlobDownloadBridge
+import com.example.download.DownloadHandler
 import com.example.network.NetworkMonitor
 import com.example.ui.theme.BandhanCyan
 import com.example.ui.theme.BandhanEmeraldPrimary
+import com.example.update.UpdateManager
+import com.example.update.UpdateState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -90,9 +93,15 @@ fun BandhanMainScreen(
     var loadProgress by remember { mutableFloatStateOf(0f) }
     var hasError by remember { mutableStateOf(false) }
     var showSplash by remember { mutableStateOf(true) }
+    var hasInitialStartupCompleted by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var swipeRefreshLayoutInstance by remember { mutableStateOf<SwipeRefreshLayout?>(null) }
     var popupWebView by remember { mutableStateOf<WebView?>(null) }
+
+    // In-App Update State & Management
+    val updateManager = remember { UpdateManager() }
+    var updateState by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
+    var downloadJob by remember { mutableStateOf<Job?>(null) }
 
     // File Chooser state
     var fileUploadCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
@@ -135,10 +144,26 @@ fun BandhanMainScreen(
         // Continue regardless; file picker will offer available sources
     }
 
-    // Dismiss Splash Screen after initial load or max 2.5 seconds timeout
+    // Safety fallback: Dismiss Splash Screen after 10s if network hangs or times out
     LaunchedEffect(Unit) {
-        delay(2200)
-        showSplash = false
+        delay(10000)
+        if (showSplash) {
+            hasInitialStartupCompleted = true
+            showSplash = false
+        }
+    }
+
+    // Auto-check for updates in background when app enters and is online
+    LaunchedEffect(isOnline) {
+        if (isOnline && updateState is UpdateState.Idle) {
+            delay(2000) // Brief delay to prioritize initial page loading resources
+            updateManager.checkForUpdates().collect { state ->
+                // Show update dialog ONLY if an actual new version is found
+                if (state is UpdateState.UpdateAvailable) {
+                    updateState = state
+                }
+            }
+        }
     }
 
     // Reload when coming back online if error occurred
@@ -238,6 +263,26 @@ fun BandhanMainScreen(
                     isScrollbarFadingEnabled = true
                     overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
 
+                    // JavaScript Interface Bridge for Client-Side Blob / Base64 Downloads (Statement feature)
+                    addJavascriptInterface(
+                        BlobDownloadBridge(ctx) { webViewInstance },
+                        BlobDownloadBridge.JS_INTERFACE_NAME
+                    )
+
+                    // Native Download Listener for HTTP/HTTPS & Blob downloads
+                    setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
+                        if (url.startsWith("blob:", ignoreCase = true) || url.startsWith("data:", ignoreCase = true)) {
+                            BlobDownloadBridge.downloadBlobUrl(
+                                webView = this,
+                                blobOrDataUrl = url,
+                                suggestedFileName = DownloadHandler.resolveFileName(url, contentDisposition, mimetype),
+                                mimeType = mimetype
+                            )
+                        } else {
+                            DownloadHandler.handleHttpDownload(ctx, url, userAgent, contentDisposition, mimetype)
+                        }
+                    }
+
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
@@ -249,8 +294,30 @@ fun BandhanMainScreen(
                             super.onPageFinished(view, url)
                             isPageLoading = false
                             swipeRefreshLayout.isRefreshing = false
-                            showSplash = false
                             CookieManager.getInstance().flush()
+
+                            // Inject Blob and Statement download interceptor JavaScript hook
+                            view?.evaluateJavascript(BlobDownloadBridge.INTERCEPTOR_JS, null)
+
+                            // Initial startup lifecycle: dismiss splash screen ONLY after initial page load is finished and rendered
+                            if (!hasInitialStartupCompleted) {
+                                hasInitialStartupCompleted = true
+                                coroutineScope.launch {
+                                    // 250ms buffer ensures WebView paints its rendered DOM before splash fades out
+                                    delay(250)
+                                    showSplash = false
+
+                                    // Check for updates in background after startup
+                                    delay(1500)
+                                    if (networkMonitor.isCurrentlyConnected() && updateState is UpdateState.Idle) {
+                                        updateManager.checkForUpdates().collect { state ->
+                                            if (state is UpdateState.UpdateAvailable) {
+                                                updateState = state
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         override fun onReceivedError(
@@ -263,6 +330,10 @@ fun BandhanMainScreen(
                                 hasError = true
                                 isPageLoading = false
                                 swipeRefreshLayout.isRefreshing = false
+                                if (!hasInitialStartupCompleted) {
+                                    hasInitialStartupCompleted = true
+                                    showSplash = false
+                                }
                             }
                         }
 
@@ -280,7 +351,25 @@ fun BandhanMainScreen(
                             request: WebResourceRequest?
                         ): Boolean {
                             val uri = request?.url ?: return false
+                            val urlString = uri.toString()
                             val scheme = uri.scheme ?: ""
+
+                            // Handle Blob or Data URLs
+                            if (urlString.startsWith("blob:", ignoreCase = true) || urlString.startsWith("data:", ignoreCase = true)) {
+                                view?.let {
+                                    BlobDownloadBridge.downloadBlobUrl(it, urlString, null, null)
+                                }
+                                return true
+                            }
+
+                            // Handle direct document/statement file downloads
+                            val path = uri.path.orEmpty().lowercase()
+                            if (path.endsWith(".pdf") || path.endsWith(".xlsx") || path.endsWith(".xls") ||
+                                path.endsWith(".csv") || path.endsWith(".zip") || path.endsWith(".doc") || path.endsWith(".docx")
+                            ) {
+                                DownloadHandler.handleHttpDownload(ctx, urlString, settings.userAgentString, null, null)
+                                return true
+                            }
 
                             // Keep web links, Google auth, and in-app domain URLs inside WebView
                             if (scheme == "http" || scheme == "https") {
@@ -308,7 +397,7 @@ fun BandhanMainScreen(
                             }
                         }
 
-                        // Google OAuth & Multi-Window Handling
+                        // Google OAuth & Multi-Window Handling (e.g., Popups, Statement generators)
                         override fun onCreateWindow(
                             view: WebView?,
                             isDialog: Boolean,
@@ -325,18 +414,67 @@ fun BandhanMainScreen(
                                     javaScriptCanOpenWindowsAutomatically = true
                                     domStorageEnabled = true
                                     databaseEnabled = true
+                                    allowFileAccess = true
+                                    allowContentAccess = true
                                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                     userAgentString = CHROME_USER_AGENT
                                 }
                                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
+                                addJavascriptInterface(
+                                    BlobDownloadBridge(ctx) { this },
+                                    BlobDownloadBridge.JS_INTERFACE_NAME
+                                )
+
+                                setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
+                                    if (url.startsWith("blob:", ignoreCase = true) || url.startsWith("data:", ignoreCase = true)) {
+                                        BlobDownloadBridge.downloadBlobUrl(
+                                            webView = this,
+                                            blobOrDataUrl = url,
+                                            suggestedFileName = DownloadHandler.resolveFileName(url, contentDisposition, mimetype),
+                                            mimeType = mimetype
+                                        )
+                                    } else {
+                                        DownloadHandler.handleHttpDownload(ctx, url, userAgent, contentDisposition, mimetype)
+                                    }
+                                    popupWebView?.destroy()
+                                    popupWebView = null
+                                }
+
                                 webViewClient = object : WebViewClient() {
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        view?.evaluateJavascript(BlobDownloadBridge.INTERCEPTOR_JS, null)
+                                    }
+
                                     override fun shouldOverrideUrlLoading(
                                         view: WebView?,
                                         request: WebResourceRequest?
                                     ): Boolean {
                                         val url = request?.url?.toString() ?: ""
-                                        // If redirecting back to main website or auth callback, let it load
+                                        val uri = request?.url
+
+                                        // Handle blob or direct document download inside popup
+                                        if (url.startsWith("blob:", ignoreCase = true) || url.startsWith("data:", ignoreCase = true)) {
+                                            view?.let {
+                                                BlobDownloadBridge.downloadBlobUrl(it, url, null, null)
+                                            }
+                                            popupWebView?.destroy()
+                                            popupWebView = null
+                                            return true
+                                        }
+
+                                        val path = uri?.path.orEmpty().lowercase()
+                                        if (path.endsWith(".pdf") || path.endsWith(".xlsx") || path.endsWith(".xls") ||
+                                            path.endsWith(".csv") || path.endsWith(".zip") || path.endsWith(".doc") || path.endsWith(".docx")
+                                        ) {
+                                            DownloadHandler.handleHttpDownload(ctx, url, settings.userAgentString, null, null)
+                                            popupWebView?.destroy()
+                                            popupWebView = null
+                                            return true
+                                        }
+
+                                        // If redirecting back to main website or auth callback, let it load in main view
                                         if (url.contains("bandhan17.website")) {
                                             webViewInstance?.loadUrl(url)
                                             popupWebView?.destroy()
@@ -458,19 +596,6 @@ fun BandhanMainScreen(
             }
         }
 
-        // Top Loading Progress Bar
-        if (isPageLoading && !showSplash) {
-            LinearProgressIndicator(
-                progress = { loadProgress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .align(Alignment.TopCenter),
-                color = BandhanCyan,
-                trackColor = Color.Transparent
-            )
-        }
-
         // Offline / No Internet Screen
         if (hasError || (!isOnline && isPageLoading)) {
             OfflineScreen(
@@ -487,6 +612,44 @@ fun BandhanMainScreen(
         SplashScreen(
             visible = showSplash,
             modifier = Modifier.fillMaxSize()
+        )
+
+        // Native In-App Update Dialog (shown automatically when an update is available)
+        UpdateDialog(
+            updateState = updateState,
+            onDismiss = {
+                downloadJob?.cancel()
+                updateState = UpdateState.Idle
+            },
+            onStartDownload = { info ->
+                downloadJob?.cancel()
+                downloadJob = coroutineScope.launch {
+                    updateManager.downloadApk(context, info).collect { state ->
+                        updateState = state
+                    }
+                }
+            },
+            onCancelDownload = {
+                downloadJob?.cancel()
+                updateState = UpdateState.Idle
+            },
+            onInstallApk = { apkFile ->
+                val launched = updateManager.launchPackageInstaller(context, apkFile)
+                if (!launched) {
+                    Toast.makeText(context, "ইনস্টলার খুলতে ব্যর্থ হয়েছে", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onOpenPermissionSettings = {
+                updateManager.openUnknownAppInstallSettings(context)
+            },
+            canInstallPackages = updateManager.canRequestPackageInstalls(context),
+            onRetry = {
+                coroutineScope.launch {
+                    updateManager.checkForUpdates().collect { state ->
+                        updateState = state
+                    }
+                }
+            }
         )
     }
 }

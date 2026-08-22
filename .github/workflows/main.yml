@@ -4,12 +4,19 @@ run-name: Build and Sign Bandhan 17 Android App (${{ github.ref_name }})
 on:
   push:
     branches: [ "main", "master" ]
+    tags:
+      - "v*"
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release Tag Name (e.g. v1.0.0)'
+        required: false
+        default: ''
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -20,6 +27,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Validate Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v4
@@ -37,20 +46,20 @@ jobs:
       - name: Setup Gradle Cache and Tooling
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Make Gradlew Executable
         run: chmod +x gradlew
 
-      - name: Configure Keystores and Secrets
+      - name: Configure Production Signing Keystore and Secrets
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.SIGNING_KEYSTORE_BASE64 || '' }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 || secrets.SIGNING_KEYSTORE_BASE64 || '' }}
           RELEASE_KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH || '' }}
           STORE_PASSWORD_SECRET: ${{ secrets.STORE_PASSWORD || secrets.KEYSTORE_PASSWORD || '' }}
           KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD || '' }}
           KEY_ALIAS_SECRET: ${{ secrets.KEY_ALIAS || '' }}
         run: |
-          # 1. Restore debug.keystore
+          # 1. Restore debug.keystore for testing
           if [ -f "debug.keystore.base64" ]; then
             base64 -d debug.keystore.base64 > debug.keystore || true
           fi
@@ -58,7 +67,7 @@ jobs:
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          # 2. Setup Release Keystore (from GitHub Secrets if provided, or fallback to debug key)
+          # 2. Setup Persistent Release Keystore from GitHub Secrets
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
             echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
@@ -71,7 +80,7 @@ jobs:
             echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
             echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-upload}" >> $GITHUB_ENV
           else
-            # Use debug keystore for signing if no custom release key provided in secrets
+            # Fallback to persistent debug keystore for signing if release secrets not yet configured
             echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/debug.keystore" >> $GITHUB_ENV
             echo "STORE_PASSWORD=android" >> $GITHUB_ENV
             echo "KEY_PASSWORD=android" >> $GITHUB_ENV
@@ -91,9 +100,6 @@ jobs:
       - name: Run Unit Tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
-      - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
-
       - name: Build Signed Release APK & AAB
         env:
           KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
@@ -103,26 +109,86 @@ jobs:
         run: |
           ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
 
+      - name: Prepare and Rename Release Assets
+        id: prepare_assets
+        run: |
+          # Determine Version & Tag
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            VERSION_STR="${TAG_NAME}"
+          elif [ -n "${{ inputs.release_tag }}" ]; then
+            TAG_NAME="${{ inputs.release_tag }}"
+            VERSION_STR="${TAG_NAME}"
+          else
+            TAG_NAME="v1.0.0"
+            VERSION_STR="v1.0.0"
+          fi
+
+          mkdir -p release_assets
+
+          # Locate and rename release APK
+          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -f "$RELEASE_APK" ]; then
+            APK_NAME="Bandhan17-${VERSION_STR}.apk"
+            cp "$RELEASE_APK" "release_assets/${APK_NAME}"
+            echo "APK_PATH=release_assets/${APK_NAME}" >> $GITHUB_ENV
+            echo "APK_NAME=${APK_NAME}" >> $GITHUB_ENV
+            echo "Prepared Release APK: release_assets/${APK_NAME}"
+          fi
+
+          # Locate and rename release AAB
+          RELEASE_AAB=$(find app/build/outputs/bundle/release -name "*.aab" | head -n 1)
+          if [ -f "$RELEASE_AAB" ]; then
+            AAB_NAME="Bandhan17-${VERSION_STR}.aab"
+            cp "$RELEASE_AAB" "release_assets/${AAB_NAME}"
+            echo "AAB_PATH=release_assets/${AAB_NAME}" >> $GITHUB_ENV
+            echo "AAB_NAME=${AAB_NAME}" >> $GITHUB_ENV
+            echo "Prepared Release AAB: release_assets/${AAB_NAME}"
+          fi
+
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
+
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Bandhan17-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload Release APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
           name: Bandhan17-Release-APK
-          path: app/build/outputs/apk/release/*.apk
+          path: release_assets/*.apk
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 30
 
       - name: Upload Android App Bundle (AAB) Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Bandhan17-AppBundle-AAB
-          path: app/build/outputs/bundle/release/*.aab
+          path: release_assets/*.aab
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 30
+
+      - name: Publish Direct Release APK to GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: Bandhan 17 ${{ env.TAG_NAME }}
+          body: |
+            ## 🚀 Bandhan 17 Official Release ${{ env.TAG_NAME }}
+            
+            Official Android release build for Bandhan 17.
+            
+            ### 📦 Direct Downloads & Assets:
+            - 📱 **Direct APK Download:** [${{ env.APK_NAME }}] (Available in assets below)
+            - 📦 **Android App Bundle (AAB):** [${{ env.AAB_NAME }}]
+            
+            ### 📲 Installation Guide:
+            1. Download `${{ env.APK_NAME }}` below.
+            2. Open the downloaded APK on your Android phone.
+            3. Tap **Install** (or enable *Install Unknown Apps* if prompted).
+            4. Future updates can be installed directly inside the app via the in-app update system!
+          files: |
+            release_assets/*.apk
+            release_assets/*.aab
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

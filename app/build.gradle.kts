@@ -18,9 +18,14 @@ android {
     minSdk = 24
     targetSdk = 36
     versionCode = 1
-    versionName = "1.0"
+    versionName = "1.0.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    val repoOwner = System.getenv("GITHUB_REPO_OWNER") ?: "giminipro12month"
+    val repoName = System.getenv("GITHUB_REPO_NAME") ?: "bandhan-apk"
+    buildConfigField("String", "GITHUB_REPO_OWNER", "\"$repoOwner\"")
+    buildConfigField("String", "GITHUB_REPO_NAME", "\"$repoName\"")
   }
 
   signingConfigs {
