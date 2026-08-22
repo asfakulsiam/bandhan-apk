@@ -1,0 +1,202 @@
+name: Publish Direct Release (APK & AAB)
+run-name: Publish Direct Release (${{ github.ref_name }})
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v1.0.0 or leave empty for auto version)'
+        required: false
+        default: ''
+      release_title:
+        description: 'Custom Release Title (optional)'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark as Pre-release?'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish_release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle Cache and Tooling
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradlew Executable
+        run: chmod +x gradlew
+
+      - name: Configure Production Signing Keystore and Secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 || secrets.SIGNING_KEYSTORE_BASE64 || '' }}
+          RELEASE_KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH || '' }}
+          STORE_PASSWORD_SECRET: ${{ secrets.STORE_PASSWORD || secrets.KEYSTORE_PASSWORD || '' }}
+          KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD || '' }}
+          KEY_ALIAS_SECRET: ${{ secrets.KEY_ALIAS || '' }}
+        run: |
+          # 1. Restore debug keystore for unit tests & fallback
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore || true
+          fi
+          if [ ! -f "debug.keystore" ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          # 2. Setup Persistent Release Keystore from GitHub Secrets if available
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-upload}" >> $GITHUB_ENV
+          elif [ -f "my-upload-key.jks" ]; then
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-upload}" >> $GITHUB_ENV
+          else
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/debug.keystore" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=android" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=android" >> $GITHUB_ENV
+            echo "KEY_ALIAS=androiddebugkey" >> $GITHUB_ENV
+          fi
+
+          # 3. Ensure .env exists
+          if [ ! -f ".env" ]; then
+            cp .env.example .env 2>/dev/null || touch .env
+          fi
+
+      - name: Run Unit Tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Build Signed Release APK and App Bundle
+        env:
+          KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
+          STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS }}
+        run: |
+          ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
+
+      - name: Extract App Version & Prepare Direct Binary Assets
+        id: prepare_release
+        run: |
+          # Extract versionName and versionCode from build.gradle.kts
+          GRADLE_VERSION_NAME=$(grep -o 'versionName\s*=\s*"[^"]*"' app/build.gradle.kts | head -n 1 | sed -E 's/versionName\s*=\s*"([^"]*)"/\1/' || echo "1.0.0")
+          GRADLE_VERSION_CODE=$(grep -o 'versionCode\s*=\s*[0-9]*' app/build.gradle.kts | head -n 1 | sed -E 's/versionCode\s*=\s*([0-9]*)/\1/' || echo "1")
+          
+          if [ -z "$GRADLE_VERSION_NAME" ]; then
+            GRADLE_VERSION_NAME="1.0.0"
+          fi
+
+          # Determine Tag Name
+          if [ -n "${{ inputs.tag_name }}" ]; then
+            TAG="${{ inputs.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${GRADLE_VERSION_NAME}"
+          fi
+
+          # Release title
+          if [ -n "${{ inputs.release_title }}" ]; then
+            TITLE="${{ inputs.release_title }}"
+          else
+            TITLE="Bandhan 17 ${TAG}"
+          fi
+
+          mkdir -p release_binaries
+
+          # Locate built APK
+          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -f "$RELEASE_APK" ]; then
+            cp "$RELEASE_APK" "release_binaries/Bandhan17-${TAG}.apk"
+            cp "$RELEASE_APK" "release_binaries/Bandhan17-latest.apk"
+            APK_SHA256=$(sha256sum "$RELEASE_APK" | awk '{print $1}')
+            echo "APK_SHA256=${APK_SHA256}" >> $GITHUB_ENV
+            echo "APK_FILE=Bandhan17-${TAG}.apk" >> $GITHUB_ENV
+          fi
+
+          # Locate built AAB
+          RELEASE_AAB=$(find app/build/outputs/bundle/release -name "*.aab" | head -n 1)
+          if [ -f "$RELEASE_AAB" ]; then
+            cp "$RELEASE_AAB" "release_binaries/Bandhan17-${TAG}.aab"
+            AAB_SHA256=$(sha256sum "$RELEASE_AAB" | awk '{print $1}')
+            echo "AAB_SHA256=${AAB_SHA256}" >> $GITHUB_ENV
+            echo "AAB_FILE=Bandhan17-${TAG}.aab" >> $GITHUB_ENV
+          fi
+
+          echo "TAG_NAME=${TAG}" >> $GITHUB_ENV
+          echo "RELEASE_TITLE=${TITLE}" >> $GITHUB_ENV
+          echo "VERSION_NAME=${GRADLE_VERSION_NAME}" >> $GITHUB_ENV
+          echo "VERSION_CODE=${GRADLE_VERSION_CODE}" >> $GITHUB_ENV
+
+      - name: Publish Direct Uncompressed APK & AAB to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: ${{ env.RELEASE_TITLE }}
+          body: |
+            ## 📱 Bandhan 17 Android Release (${{ env.TAG_NAME }})
+
+            Official release build for **বন্ধন'১৭ (Bandhan 17)**.
+
+            ---
+
+            ### 🚀 Direct Downloads (Raw Files — No Zip required!):
+            - 📥 **[Download Direct APK (${{ env.APK_FILE }})](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/${{ env.APK_FILE }})**
+            - 📥 **[Download Latest APK (Always points to latest update)](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/Bandhan17-latest.apk)**
+            - 📦 **[Download Google Play Bundle (${{ env.AAB_FILE }})](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/${{ env.AAB_FILE }})**
+
+            ---
+
+            ### 📲 How to Install:
+            1. Tap on the **${{ env.APK_FILE }}** link above (or choose it from the **Assets** list below).
+            2. When the download finishes, tap to open and install.
+            3. *Note: If Android asks to "Install Unknown Apps", allow it for your browser/file manager.*
+            4. In-app update notifications will keep your app up-to-date automatically in the future!
+
+            ---
+
+            ### 🔐 Verification & Integrity:
+            - **Version:** `${{ env.VERSION_NAME }}` (Build `${{ env.VERSION_CODE }}`)
+            - **APK SHA-256:** `${{ env.APK_SHA256 }}`
+            - **AAB SHA-256:** `${{ env.AAB_SHA256 }}`
+          files: |
+            release_binaries/Bandhan17-*.apk
+            release_binaries/Bandhan17-*.aab
+          draft: false
+          prerelease: ${{ inputs.prerelease || false }}
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
