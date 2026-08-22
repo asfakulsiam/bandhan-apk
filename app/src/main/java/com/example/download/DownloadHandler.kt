@@ -212,14 +212,20 @@ object DownloadHandler {
             }
         }
 
-        // 2. URLUtil guess (with safe fallback)
-        try {
-            val guessed = URLUtil.guessFileName(url, contentDisposition, mimeType)
-            if (!guessed.isNullOrBlank() && !guessed.equals("downloadfile.bin", ignoreCase = true)) {
-                return sanitizeFileName(guessed)
+        // 2. URLUtil guess — only meaningful when a Content-Disposition header was present
+        // but didn't match the regex above (e.g. non-standard format). Without any CD header,
+        // URLUtil falls back to guessing from the URL's last path segment (e.g. "download"),
+        // which produces a meaningless name for API endpoints — so skip straight to the
+        // branded fallback (step 3) in that case instead.
+        if (!contentDisposition.isNullOrBlank()) {
+            try {
+                val guessed = URLUtil.guessFileName(url, contentDisposition, mimeType)
+                if (!guessed.isNullOrBlank() && !guessed.equals("downloadfile.bin", ignoreCase = true)) {
+                    return sanitizeFileName(guessed)
+                }
+            } catch (_: Throwable) {
+                // Fallback for unmocked unit test / JVM environments
             }
-        } catch (_: Throwable) {
-            // Fallback for unmocked unit test / JVM environments
         }
 
         // 3. Fallback to timestamped statement name
