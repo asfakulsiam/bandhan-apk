@@ -186,6 +186,14 @@ jobs:
 
             ---
 
+            ### 📝 What's New in this Update:
+            - 🐛 Fix bug
+            - ⚡ Improve performance
+            - 📄 Fix PDF download issue
+            - 🔄 Added auto update support
+
+            ---
+
             ### 🚀 Direct Downloads (Raw Files — No Zip required!):
             - 📥 **[Download Direct APK (${{ env.APK_FILE }})](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/${{ env.APK_FILE }})**
             - 📥 **[Download Latest APK (Always points to latest update)](https://github.com/${{ github.repository }}/releases/download/${{ env.TAG_NAME }}/Bandhan17-latest.apk)**
