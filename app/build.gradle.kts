@@ -22,8 +22,18 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-    val repoOwner = System.getenv("GITHUB_REPO_OWNER") ?: "giminipro12month"
-    val repoName = System.getenv("GITHUB_REPO_NAME") ?: "bandhan-apk"
+    val githubRepoEnv = System.getenv("GITHUB_REPOSITORY") // Automatically supplied by GitHub Actions e.g. "owner/repo"
+    val repoOwner = when {
+      !githubRepoEnv.isNullOrBlank() && githubRepoEnv.contains("/") -> githubRepoEnv.substringBefore("/")
+      !System.getenv("GITHUB_REPOSITORY_OWNER").isNullOrBlank() -> System.getenv("GITHUB_REPOSITORY_OWNER")
+      !System.getenv("GITHUB_REPO_OWNER").isNullOrBlank() -> System.getenv("GITHUB_REPO_OWNER")
+      else -> "asfakulsiam"
+    }
+    val repoName = when {
+      !githubRepoEnv.isNullOrBlank() && githubRepoEnv.contains("/") -> githubRepoEnv.substringAfter("/")
+      !System.getenv("GITHUB_REPO_NAME").isNullOrBlank() -> System.getenv("GITHUB_REPO_NAME")
+      else -> "bandhan-apk"
+    }
     buildConfigField("String", "GITHUB_REPO_OWNER", "\"$repoOwner\"")
     buildConfigField("String", "GITHUB_REPO_NAME", "\"$repoName\"")
   }

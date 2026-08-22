@@ -46,108 +46,132 @@ class UpdateManager(
     ): Flow<UpdateState> = flow {
         emit(UpdateState.Checking)
 
-        val apiUrl = "https://api.github.com/repos/$owner/$repo/releases/latest"
-        val request = Request.Builder()
-            .url(apiUrl)
+        val latestUrl = "https://api.github.com/repos/$owner/$repo/releases/latest"
+        val requestLatest = Request.Builder()
+            .url(latestUrl)
             .header("Accept", "application/vnd.github.v3+json")
             .header("User-Agent", "Bandhan17-Android-App")
             .get()
             .build()
 
+        var json: JSONObject? = null
+
         try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val code = response.code
-                    if (code == 404) {
-                        emit(UpdateState.UpToDate(currentVersion, System.currentTimeMillis()))
-                    } else {
-                        emit(
-                            UpdateState.Error(
-                                message = "GitHub API response error (HTTP $code)",
-                                isNetworkError = false
-                            )
-                        )
+            client.newCall(requestLatest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyString = response.body?.string().orEmpty()
+                    if (bodyString.isNotBlank()) {
+                        json = JSONObject(bodyString)
                     }
-                    return@flow
-                }
-
-                val bodyString = response.body?.string().orEmpty()
-                if (bodyString.isBlank()) {
-                    emit(UpdateState.Error("Empty response from GitHub Releases API", false))
-                    return@flow
-                }
-
-                val json = JSONObject(bodyString)
-                val tagName = json.optString("tag_name", "").trim()
-                val releaseName = json.optString("name", tagName)
-                val bodyMarkdown = json.optString("body", "No release notes provided.")
-                val publishedAt = json.optString("published_at", "")
-                val htmlUrl = json.optString("html_url", "")
-
-                // Parse assets to find APK download asset
-                val assetsJson: JSONArray? = json.optJSONArray("assets")
-                var apkAsset: GitHubReleaseAsset? = null
-
-                if (assetsJson != null) {
-                    for (i in 0 until assetsJson.length()) {
-                        val assetObj = assetsJson.optJSONObject(i) ?: continue
-                        val assetName = assetObj.optString("name", "")
-                        val downloadUrl = assetObj.optString("browser_download_url", "")
-                        val size = assetObj.optLong("size", 0L)
-                        val contentType = assetObj.optString("content_type", "")
-
-                        if (assetName.endsWith(".apk", ignoreCase = true) ||
-                            downloadUrl.endsWith(".apk", ignoreCase = true)
-                        ) {
-                            apkAsset = GitHubReleaseAsset(
-                                name = assetName,
-                                size = size,
-                                browserDownloadUrl = downloadUrl,
-                                contentType = contentType
-                            )
-                            break
-                        }
-                    }
-                }
-
-                if (apkAsset == null) {
-                    // If no APK asset is found on the latest release
-                    emit(
-                        UpdateState.Error(
-                            message = "No APK asset attached to release $tagName",
-                            isNetworkError = false
-                        )
-                    )
-                    return@flow
-                }
-
-                val isNewer = VersionComparator.isNewerVersion(tagName, currentVersion)
-                val updateInfo = UpdateInfo(
-                    latestVersionName = tagName,
-                    currentVersionName = currentVersion,
-                    isUpdateAvailable = isNewer,
-                    releaseTitle = if (releaseName.isNotBlank()) releaseName else "Bandhan'17 $tagName",
-                    releaseNotes = bodyMarkdown,
-                    apkDownloadUrl = apkAsset.browserDownloadUrl,
-                    apkFileName = apkAsset.name,
-                    apkSizeBytes = apkAsset.size,
-                    publishedAt = formatDate(publishedAt),
-                    htmlUrl = htmlUrl
-                )
-
-                if (isNewer) {
-                    emit(UpdateState.UpdateAvailable(updateInfo))
-                } else {
-                    emit(UpdateState.UpToDate(currentVersion, System.currentTimeMillis()))
                 }
             }
         } catch (e: IOException) {
-            emit(
-                UpdateState.Error(
-                    message = "Network error while checking updates: ${e.localizedMessage ?: "Connection timed out"}",
-                    isNetworkError = true
+            // Network error
+        } catch (_: Exception) {}
+
+        // Fallback: If /releases/latest wasn't found (e.g. release marked as pre-release or custom tag), check /releases list
+        if (json == null) {
+            val listUrl = "https://api.github.com/repos/$owner/$repo/releases?per_page=5"
+            val requestList = Request.Builder()
+                .url(listUrl)
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "Bandhan17-Android-App")
+                .get()
+                .build()
+
+            try {
+                client.newCall(requestList).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val bodyString = response.body?.string().orEmpty()
+                        if (bodyString.isNotBlank()) {
+                            val array = JSONArray(bodyString)
+                            if (array.length() > 0) {
+                                json = array.optJSONObject(0)
+                            }
+                        }
+                    }
+                }
+            } catch (e: IOException) {
+                emit(
+                    UpdateState.Error(
+                        message = "Network error while checking updates: ${e.localizedMessage ?: "Connection timed out"}",
+                        isNetworkError = true
+                    )
                 )
+                return@flow
+            } catch (_: Exception) {}
+        }
+
+        if (json == null) {
+            // No releases found or repository not reachable
+            emit(UpdateState.UpToDate(currentVersion, System.currentTimeMillis()))
+            return@flow
+        }
+
+        try {
+            val releaseObj = json!!
+            val tagName = releaseObj.optString("tag_name", "").trim()
+            val releaseName = releaseObj.optString("name", tagName)
+            val bodyMarkdown = releaseObj.optString("body", "No release notes provided.")
+            val publishedAt = releaseObj.optString("published_at", "")
+            val htmlUrl = releaseObj.optString("html_url", "")
+
+            // Parse assets to find APK download asset
+            val assetsJson: JSONArray? = releaseObj.optJSONArray("assets")
+            var apkAsset: GitHubReleaseAsset? = null
+
+            if (assetsJson != null) {
+                for (i in 0 until assetsJson.length()) {
+                    val assetObj = assetsJson.optJSONObject(i) ?: continue
+                    val assetName = assetObj.optString("name", "")
+                    val downloadUrl = assetObj.optString("browser_download_url", "")
+                    val size = assetObj.optLong("size", 0L)
+                    val contentType = assetObj.optString("content_type", "")
+
+                    if (assetName.endsWith(".apk", ignoreCase = true) ||
+                        downloadUrl.endsWith(".apk", ignoreCase = true)
+                    ) {
+                        apkAsset = GitHubReleaseAsset(
+                            name = assetName,
+                            size = size,
+                            browserDownloadUrl = downloadUrl,
+                            contentType = contentType
+                        )
+                        break
+                    }
+                }
+            }
+
+            if (apkAsset == null) {
+                // If no APK asset is found on the latest release
+                emit(
+                    UpdateState.Error(
+                        message = "No APK asset attached to release $tagName",
+                        isNetworkError = false
+                    )
+                )
+                return@flow
+            }
+
+            val isNewer = VersionComparator.isNewerVersion(tagName, currentVersion)
+            val updateInfo = UpdateInfo(
+                latestVersionName = tagName,
+                currentVersionName = currentVersion,
+                isUpdateAvailable = isNewer,
+                releaseTitle = if (releaseName.isNotBlank()) releaseName else "Bandhan'17 $tagName",
+                releaseNotes = bodyMarkdown,
+                apkDownloadUrl = apkAsset.browserDownloadUrl,
+                apkFileName = apkAsset.name,
+                apkSizeBytes = apkAsset.size,
+                publishedAt = formatDate(publishedAt),
+                htmlUrl = htmlUrl
             )
+
+            if (isNewer) {
+                emit(UpdateState.UpdateAvailable(updateInfo))
+            } else {
+                emit(UpdateState.UpToDate(currentVersion, System.currentTimeMillis()))
+            }
         } catch (e: Exception) {
             emit(
                 UpdateState.Error(
