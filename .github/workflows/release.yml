@@ -64,31 +64,35 @@ jobs:
           KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD || '' }}
           KEY_ALIAS_SECRET: ${{ secrets.KEY_ALIAS || '' }}
         run: |
-          # 1. Restore debug keystore for unit tests & fallback
-          if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore || true
-          fi
-          if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          fi
-
-          # 2. Setup Persistent Release Keystore from GitHub Secrets if available
+          # 1. Restore persistent release keystore
           if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
-            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
-            echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
-            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-upload}" >> $GITHUB_ENV
-          elif [ -f "my-upload-key.jks" ]; then
-            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
-            echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-android}" >> $GITHUB_ENV
-            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-upload}" >> $GITHUB_ENV
-          else
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-bandhan17_secret_pass}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-bandhan17_secret_pass}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-bandhan17_release}" >> $GITHUB_ENV
+          elif [ -f "release.keystore.base64" ]; then
+            base64 -d release.keystore.base64 > release.keystore || true
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-bandhan17_secret_pass}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-bandhan17_secret_pass}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-bandhan17_release}" >> $GITHUB_ENV
+          elif [ -f "release.keystore" ]; then
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=${STORE_PASSWORD_SECRET:-bandhan17_secret_pass}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${KEY_PASSWORD_SECRET:-bandhan17_secret_pass}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${KEY_ALIAS_SECRET:-bandhan17_release}" >> $GITHUB_ENV
+          elif [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore || true
             echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/debug.keystore" >> $GITHUB_ENV
             echo "STORE_PASSWORD=android" >> $GITHUB_ENV
             echo "KEY_PASSWORD=android" >> $GITHUB_ENV
             echo "KEY_ALIAS=androiddebugkey" >> $GITHUB_ENV
+          fi
+
+          # 2. Restore debug keystore for unit tests
+          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore || true
           fi
 
           # 3. Ensure .env exists
@@ -107,6 +111,15 @@ jobs:
           KEY_ALIAS: ${{ env.KEY_ALIAS }}
         run: |
           ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
+
+      - name: Verify APK Signing Certificate with apksigner
+        run: |
+          APKSIGNER_BIN=$(find $ANDROID_SDK_ROOT/build-tools -name apksigner | sort -V | tail -n 1)
+          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -n "$APKSIGNER_BIN" ] && [ -f "$RELEASE_APK" ]; then
+            echo "=== APK Signer Verification Details ==="
+            $APKSIGNER_BIN verify --verbose --print-certs "$RELEASE_APK"
+          fi
 
       - name: Extract App Version & Prepare Direct Binary Assets
         id: prepare_release

@@ -17,8 +17,8 @@ android {
     applicationId = "com.bandhan17.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 3
-    versionName = "1.0.2"
+    versionCode = 4
+    versionName = "1.0.3"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -41,26 +41,40 @@ android {
   signingConfigs {
     create("release") {
       val envKeystorePath = System.getenv("KEYSTORE_PATH")
-      val defaultReleaseKeystore = file("${rootDir}/my-upload-key.jks")
+      val releaseKeystore = file("${rootDir}/release.keystore")
+      val uploadKeystore = file("${rootDir}/my-upload-key.jks")
       val debugKeystore = file("${rootDir}/debug.keystore")
 
       val targetKeystore = when {
         envKeystorePath != null && file(envKeystorePath).exists() -> file(envKeystorePath)
-        defaultReleaseKeystore.exists() -> defaultReleaseKeystore
+        releaseKeystore.exists() -> releaseKeystore
+        uploadKeystore.exists() -> uploadKeystore
         else -> debugKeystore
       }
 
       storeFile = targetKeystore
-      val isUsingDebugFallback = (targetKeystore == debugKeystore)
-      storePassword = System.getenv("STORE_PASSWORD") ?: "android"
-      keyAlias = System.getenv("KEY_ALIAS") ?: if (isUsingDebugFallback) "androiddebugkey" else "upload"
-      keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
+
+      val isReleaseKeystore = (targetKeystore == releaseKeystore)
+      val isDebugFallback = (targetKeystore == debugKeystore)
+
+      storePassword = System.getenv("STORE_PASSWORD") ?: if (isReleaseKeystore) "bandhan17_secret_pass" else "android"
+      keyAlias = System.getenv("KEY_ALIAS") ?: when {
+        isReleaseKeystore -> "bandhan17_release"
+        isDebugFallback -> "androiddebugkey"
+        else -> "upload"
+      }
+      keyPassword = System.getenv("KEY_PASSWORD") ?: if (isReleaseKeystore) "bandhan17_secret_pass" else "android"
+
+      enableV1Signing = true
+      enableV2Signing = true
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
       storePassword = "android"
       keyAlias = "androiddebugkey"
       keyPassword = "android"
+      enableV1Signing = true
+      enableV2Signing = true
     }
   }
 
