@@ -45,9 +45,9 @@ fun BandhanEmblem(
     size: Dp = 160.dp,
     animate: Boolean = false
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "emblem_anim")
-    val rotation by if (animate) {
-        infiniteTransition.animateFloat(
+    val rotation = if (animate) {
+        val infiniteTransition = rememberInfiniteTransition(label = "emblem_anim")
+        val animatedRotation by infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
             animationSpec = infiniteRepeatable(
@@ -56,13 +56,9 @@ fun BandhanEmblem(
             ),
             label = "rotation"
         )
+        animatedRotation
     } else {
-        rememberInfiniteTransition(label = "static").animateFloat(
-            initialValue = 0f,
-            targetValue = 0f,
-            animationSpec = infiniteRepeatable(tween(1000)),
-            label = "static"
-        )
+        0f
     }
 
     Box(

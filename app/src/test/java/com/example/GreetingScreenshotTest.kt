@@ -26,7 +26,7 @@ class GreetingScreenshotTest {
   fun greeting_screenshot() {
     composeTestRule.setContent {
       MyApplicationTheme {
-        SplashScreen(visible = true)
+        SplashScreen(visible = true, animateEmblem = false)
       }
     }
 

@@ -52,7 +52,8 @@ import com.example.ui.theme.BandhanMintBg
 @Composable
 fun SplashScreen(
     visible: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    animateEmblem: Boolean = true
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -142,7 +143,7 @@ fun SplashScreen(
                     .padding(32.dp)
             ) {
                 // Emblem
-                BandhanEmblem(size = 140.dp, animate = true)
+                BandhanEmblem(size = 140.dp, animate = animateEmblem)
 
                 Spacer(modifier = Modifier.height(28.dp))
 
